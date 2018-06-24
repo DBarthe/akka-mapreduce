@@ -1,10 +1,12 @@
 package mapreduce;
 
-import akka.actor.ActorSystem;
+import akka.actor.*;
+import akka.remote.RemoteScope;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 
 import java.util.Properties;
+import java.util.stream.IntStream;
 
 public class WorkerApplication {
 
@@ -19,7 +21,5 @@ public class WorkerApplication {
   
     // create the worker system
     ActorSystem system = ActorSystem.create("WorkerSystem", config);
-  
-    
   }
 }

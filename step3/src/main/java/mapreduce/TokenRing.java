@@ -6,9 +6,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * TokenRing is class that maps partition indexes to reducers references
+ * TokenRing is class that maps partition indexes to nodes
  */
-public class TokenRing<T> implements Serializable {
+public class TokenRing<T extends Serializable> implements Serializable {
     
     /**
      * The number of partitions
@@ -16,73 +16,30 @@ public class TokenRing<T> implements Serializable {
     private int n;
     
     /**
-     * Map a partition index to a reducer
+     * Map a partition index to a node
      */
     private List<T> ring;
     
     /**
-     * Index the partitions index by reducer
+     * Index the partitions by nodes
      */
     private Map<T, Set<Integer>> index = new HashMap<>();
     
     /**
-     * Create the token ring
-     *
-     * @param n the number of partitions
-     */
-    public TokenRing(int n) {
-        this.n = n;
-        this.ring = new ArrayList<>(n);
-    }
-    
-    /**
-     * Initialize the token ring with a set of reducers
-     *
-     * @param reducerList the list of reducers's actor ref
-     */
-    public void initialize(List<T> reducerList) {
-        int nReducers = reducerList.size();
-        for (int i = 0; i < n; i++) {
-            affect(i, reducerList.get(i % nReducers));
-        }
-    }
-    
-    /**
-     * Affect a partition to a reducer, updating the ring as well as the index.
-     * It the partition was already affected to some reducer, it will remove the affectation first
-     *
-     * @param partitionIndex the index of the partition
-     * @param reducer        the reducers's actor ref
-     */
-    private void affect(int partitionIndex, T reducer) {
-        T donor = ring.get(partitionIndex);
-        if (donor != null) {
-            index.get(donor).remove(partitionIndex);
-        }
-        ring.set(partitionIndex, reducer);
-        Set<Integer> partitions = index.computeIfAbsent(reducer, x -> new HashSet<>());
-        partitions.add(partitionIndex);
-        index.put(reducer, partitions);
-    }
-    
-    /**
      * Change is a subclass holding information about a movement in the token ring, that means a partition being
-     * removed from a reducer to be given to another reducer
+     * removed from a node to be given to another node
      *
      * @param <T>
      */
-    public static class Change<T> {
+    public static class Change<T extends Serializable> implements Serializable {
         
         private int partitionIndex;
         private T donor;
         private T receiver;
         
-        private Change(int partitionIndex, T donor) {
+        public Change(int partitionIndex, T donor, T receiver) {
             this.partitionIndex = partitionIndex;
             this.donor = donor;
-        }
-        
-        private void complete(T receiver) {
             this.receiver = receiver;
         }
         
@@ -99,66 +56,159 @@ public class TokenRing<T> implements Serializable {
         }
     }
     
+    /**
+     * Create the token ring
+     *
+     * @param n the number of partitions
+     */
+    public TokenRing(int n) {
+        this.n = n;
+        this.ring = Stream.generate(() -> (T)null).limit(n).collect(Collectors.toList());
+    }
+    
+    public int getN() {
+        return n;
+    }
+    
+    List<T> getRing() {
+        return ring;
+    }
+    
+    Map<T, Set<Integer>> getIndex() {
+        return index;
+    }
     
     /**
-     * Re-balance the partition distribution across the reducers
+     * Initialize the token ring with a set of nodes
      *
-     * @return the summary of changes
+     * @param nodeList the list of nodes's actor ref
      */
-    public List<Change<T>> rebalance() {
+    public void initialize(List<T> nodeList) {
+        int nReducers = nodeList.size();
+        for (int i = 0; i < n; i++) {
+            affect(i, nodeList.get(i % nReducers));
+        }
+    }
+    
+    /**
+     * Initialize the token ring with one node only
+     * @param node
+     */
+    public void initialize(T node) {
+        initialize(Collections.singletonList(node));
+    }
+    
+    /**
+     * @return true if the ring has been initialized
+     */
+    public boolean initialized() {
+        return index.size() > 0;
+    }
+    
+    /**
+     * Affect a partition to a node, updating the ring as well as the index.
+     * It the partition was already affected to some node, it will remove the affectation first
+     *
+     * @param partitionIndex the index of the partition
+     * @param node        the nodes's actor ref
+     */
+    private void affect(int partitionIndex, T node) {
+        T donor = ring.get(partitionIndex);
+        if (donor != null) {
+            index.get(donor).remove(partitionIndex);
+        }
+        ring.set(partitionIndex, node);
+        Set<Integer> partitions = index.computeIfAbsent(node, x -> new HashSet<>());
+        partitions.add(partitionIndex);
+        index.put(node, partitions);
+    }
+    
+    /**
+     * Sort the index by number of partitions
+     * @return the navigable set of the sorted index entries
+     */
+    private PriorityQueue<Map.Entry<T, Set<Integer>>> indexSort(boolean asc) {
+        PriorityQueue<Map.Entry<T, Set<Integer>>> sortedIndex = new PriorityQueue<>(index.size(),
+                Comparator.comparingInt(x -> (asc ? 1 : -1) * x.getValue().size()));
+        sortedIndex.addAll(index.entrySet());
+        return sortedIndex;
+    }
+    /**
+     * Add a node to the ring and re-balance
+     *
+     * @param node the node to add to the ring
+     * @return the changelog
+     */
+    public List<Change<T>> add(T node) {
+        
+        // create the changelog to return
+        List<Change<T>> changelog = new ArrayList<>();
+    
+        if (index.size() == 0) {
+            initialize(node);
+            return changelog;
+        }
+    
+        // stop if the token ring already contains this node
+        if (index.containsKey(node)) {
+            return changelog;
+        }
+        
         // Compute the perfect distribution
-        int nReducers = index.size();
+        int nReducers = index.size() + 1;
         int optimum = n / nReducers;
-        int remain = n % nReducers;
         
-        // gather the list of partition to be redistributed
-        Queue<Change<T>> changeQueue = index.entrySet().stream()
-                .filter(entry -> entry.getValue().size() > optimum)
-                .flatMap(entry -> entry.getValue().stream().limit(entry.getValue().size() - optimum))
-                .skip(remain)
-                .map(partitionIndex -> new Change<T>(partitionIndex, ring.get(partitionIndex)))
-                .collect(Collectors.toCollection(LinkedList::new));
-        
-        
-        // gather the list of potential receiver
-        Stream<T> receiverStream = index.entrySet().stream()
-                .filter(entry -> entry.getValue().size() < optimum)
-                .map(Map.Entry::getKey);
-        
-        // attribute receiver to partitions
-        Stream<Change<T>> changeStream = receiverStream.flatMap(receiver -> {
-            List<Change<T>> localChangeList = new ArrayList<>();
-            for (int i = 0; i < optimum - index.get(receiver).size() && changeQueue.size() > 0; i++) {
-                Change<T> change = changeQueue.poll();
-                change.complete(receiver);
-                localChangeList.add(change);
+        // sort the index on number of partitions
+        PriorityQueue<Map.Entry<T, Set<Integer>>> sortedIndex = indexSort(false);
+        for (int i = 0; i < optimum; i++) {
+            
+            // poll the most occupied node from the sorted index
+            assert sortedIndex.size() > 0;
+            Map.Entry<T, Set<Integer>> entry = sortedIndex.poll();
+            T donor = entry.getKey();
+            Set<Integer> partitionSet = entry.getValue();
+            
+            // Move one partition (just create a Change object)
+            assert partitionSet.size() > 0;
+            Integer partitionIndex = Utils.removeFirst(partitionSet);
+            changelog.add(new Change<>(partitionIndex, donor, node));
+
+            // put back the node in the sorted set
+            if (partitionSet.size() > 0) {
+                entry.setValue(partitionSet);
+                sortedIndex.add(entry);
             }
-            return localChangeList.stream();
-        });
+        }
         
-        // re-affect the partition
-        changeStream.forEach(change -> affect(change.getPartitionIndex(), change.getReceiver()));
+        // Apply the changes in the data-structure
+        index.put(node, new HashSet<>());
+        changelog.forEach(c -> affect(c.getPartitionIndex(), node));
         
-        // return the list of changes
-        return changeStream.collect(Collectors.toList());
+        // return the change log
+        return changelog;
+        
     }
     
-    /**
-     * Add a reducer to the ring and re-balance
-     *
-     * @param reducer the reducer's actor ref
-     */
-    public List<Change<T>> add(T reducer) {
-        index.computeIfAbsent(reducer, x -> new HashSet<>());
-        return rebalance();
-    }
     
-    /**
-     * Remove a reducer from the ring and re-balance
-     *
-     * @param reducer the reducer's actor ref
-     */
-    public void remove(T reducer) {
-        //TODO
+    public static void main(String[] args) {
+        TokenRing<Integer> ring = new TokenRing<>(10);
+        List<Change<Integer>> changes;
+        
+        List<Integer> initList = new ArrayList<>();
+        initList.add(1);
+        initList.add(2);
+        initList.add(3);
+        
+        ring.initialize(initList);
+        
+        changes = ring.add(4);
+        changes = ring.add(5);
+        changes = ring.add(6);
+        
+//        changes = ring.remove(6);
+//        changes = ring.remove(2);
+        System.out.println("toto");
+        
+        return ;
     }
 }
