@@ -28,10 +28,19 @@ public class TokenRingTest {
             });
         });
         
-        tokenRing.getRing().forEach(Assert::assertNotNull);
+        if (tokenRing.getIndex().size() > 0) {
+            tokenRing.getRing().forEach(Assert::assertNotNull);
+        }
+        else {
+            tokenRing.getRing().forEach(Assert::assertNull);
+        }
     }
     
     private <T extends Serializable> void checkBalance(TokenRing<T> tokenRing) {
+        if (tokenRing.getIndex().size() == 0) {
+            return ;
+        }
+        
         int optimum = tokenRing.getN() / tokenRing.getIndex().size();
         tokenRing.getIndex().forEach((x, set) -> assertTrue(set.size() >= optimum && set.size() <= optimum + 1));
     }
@@ -74,5 +83,19 @@ public class TokenRingTest {
         }
     }
     
+    @Test
+    public void remove() {
+        TokenRing<Integer> tokenRing = createTokenRing();
+        
+        checkAll(tokenRing, 3);
+        
+        tokenRing.remove(1);
+        checkAll(tokenRing, 2);
     
+        tokenRing.remove(3);
+        checkAll(tokenRing, 1);
+    
+        tokenRing.remove(2);
+        checkAll(tokenRing, 0);
+    }
 }

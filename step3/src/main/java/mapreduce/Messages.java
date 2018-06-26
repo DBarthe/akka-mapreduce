@@ -4,7 +4,6 @@ import akka.actor.ActorRef;
 import mapreduce.TokenRing.Change;
 
 import java.io.Serializable;
-import java.util.HashMap;
 import java.util.Map;
 
 public class Messages {
@@ -33,11 +32,12 @@ public class Messages {
     }
     
     /**
-     * During the Register massage, the worker explicits which kind of worker it becomes : mapper or reducer
+     * During the Register massage, the worker explicits which kind of worker it becomes : mapper or reducer or reader
      */
     public static abstract class Register implements Serializable {}
     public static class RegisterMapper extends Register {}
     public static class RegisterReducer extends Register {}
+    public static class RegisterReader extends Register {}
     
     /**
      * When the TokenRing change, a TokenRingState is broadcasted to all mappers and reducers
@@ -120,6 +120,9 @@ public class Messages {
         }
     }
     
+    /**
+     * A word to count
+     */
     public static class WordCount implements Serializable {
         private String word;
         private int count;
@@ -135,6 +138,21 @@ public class Messages {
     
         public int getCount() {
             return count;
+        }
+    }
+    
+    /**
+     * Message to ask a word count
+     */
+    public static class ReadWordCount implements Serializable {
+        private String word;
+    
+        public ReadWordCount(String word) {
+            this.word = word;
+        }
+    
+        public String getWord() {
+            return word;
         }
     }
 }

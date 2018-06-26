@@ -189,26 +189,41 @@ public class TokenRing<T extends Serializable> implements Serializable {
         
     }
     
+    /**
+     * Remove a node from the token ring, redistribute partitions
+     * @param node the node to be removed
+     * @return the changelog
+     */
+    public List<Change<T>> remove(T node) {
     
-    public static void main(String[] args) {
-        TokenRing<Integer> ring = new TokenRing<>(10);
-        List<Change<Integer>> changes;
+        List<Change<T>> changelog = new ArrayList<>();
         
-        List<Integer> initList = new ArrayList<>();
-        initList.add(1);
-        initList.add(2);
-        initList.add(3);
+        if (!index.containsKey(node)) {
+            return changelog;
+        }
+    
+        // Set of partition to be redistributed (remove node from the index)
+        Set<Integer> partitionSet = index.remove(node);
         
-        ring.initialize(initList);
+        if (index.size() == 0) {
+            partitionSet.forEach(partitionIndex -> ring.set(partitionIndex, null));
+            return changelog;
+        }
         
-        changes = ring.add(4);
-        changes = ring.add(5);
-        changes = ring.add(6);
+        // get the index sorted with
+        PriorityQueue<Map.Entry<T, Set<Integer>>> sortedIndex = indexSort(true);
         
-//        changes = ring.remove(6);
-//        changes = ring.remove(2);
-        System.out.println("toto");
+        partitionSet.forEach(partitionIndex -> {
+            Map.Entry<T, Set<Integer>> entry = sortedIndex.poll();
+            assert entry != null;
+            changelog.add(new Change<>(partitionIndex, node, entry.getKey()));
+            entry.getValue().add(partitionIndex);
+            sortedIndex.add(entry);
+            ring.set(partitionIndex, null);
+        });
         
-        return ;
+        changelog.forEach(c -> affect(c.getPartitionIndex(), c.getReceiver()));
+        
+        return changelog;
     }
 }

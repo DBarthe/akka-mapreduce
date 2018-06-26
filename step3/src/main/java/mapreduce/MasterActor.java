@@ -21,7 +21,13 @@ public class MasterActor extends AbstractActor {
     
     private List<ActorRef> mappers = new ArrayList<>();
     private List<ActorRef> reducers = new ArrayList<>();
-    private TokenRing<ActorRef> tokenRing = new TokenRing<>(10);
+    private List<ActorRef> readers = new ArrayList<>();
+    
+    private TokenRing<ActorRef> tokenRing;
+    
+    public MasterActor(int nPartitions) {
+        this.tokenRing = new TokenRing<>(nPartitions);
+    }
     
     @Override
     public void preStart() throws IOException {
@@ -45,6 +51,9 @@ public class MasterActor extends AbstractActor {
                     }
                     else if (reducers.contains(terminated.getActor())) {
                         unregisterReducer(terminated.getActor());
+                    }
+                    else if (readers.contains(terminated.getActor())) {
+                        readers.remove(terminated.getActor());
                     }
                 })
                 .match(Line.class, this::forwardLine)
@@ -109,6 +118,9 @@ public class MasterActor extends AbstractActor {
         reducers.forEach(m -> {
             m.tell(new TokenRingState(tokenRing), self());
         });
+        readers.forEach(m -> {
+            m.tell(new TokenRingState(tokenRing), self());
+        });
     }
     
     /**
@@ -124,7 +136,8 @@ public class MasterActor extends AbstractActor {
     private void unregisterReducer(ActorRef reducer) {
         log.info("reducer un-registration : {}", reducer);
         reducers.remove(reducer);
-        // TODO: remove from token RING
+        tokenRing.remove(reducer);
+        propagateTokenRing();
     }
     
     /**

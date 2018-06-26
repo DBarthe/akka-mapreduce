@@ -2,10 +2,7 @@ package mapreduce;
 
 import akka.actor.ActorRef;
 import akka.japi.pf.ReceiveBuilder;
-import mapreduce.Messages.PartitionTransferExecution;
-import mapreduce.Messages.PartitionTransferOrder;
-import mapreduce.Messages.RegisterReducer;
-import mapreduce.Messages.WordCount;
+import mapreduce.Messages.*;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,16 +19,17 @@ public class ReducerActor extends WorkerActor {
 //      this.word = word;
 //    }
 //  }
-
-  private Map<String, Integer> wordCountMap = new HashMap<>();
-  private Map<Integer, Set<String>> indexByPartition = new HashMap<>();
-
+    
+    private Map<String, Integer> wordCountMap = new HashMap<>();
+    private Map<Integer, Set<String>> indexByPartition = new HashMap<>();
+    
     @Override
     protected ReceiveBuilder completeReceive(ReceiveBuilder builder) {
         return builder
                 .match(PartitionTransferOrder.class, this::processTransferOrder)
                 .match(PartitionTransferExecution.class, this::processTransferExecution)
-                .match(WordCount.class, this::processWordCount);
+                .match(WordCount.class, this::processWordCount)
+                .match(ReadWordCount.class, this::processReadWordCount);
     }
     
     @Override
@@ -52,15 +50,13 @@ public class ReducerActor extends WorkerActor {
             // if not forward the message
             log.info("forwarding word count ({}, {})", wordCount.getWord(), wordCount.getCount());
             destReducer.forward(wordCount, context());
-        }
-        else {
+        } else {
             // otherwise process the word count here
             log.info("processing new word count ({}, {})", wordCount.getWord(), wordCount.getCount());
             wordCountMap.put(wordCount.getWord(), wordCountMap.getOrDefault(wordCount.getWord(), 0) + wordCount.getCount());
             if (indexByPartition.containsKey(partition)) {
                 indexByPartition.get(partition).add(wordCount.getWord());
-            }
-            else {
+            } else {
                 Set<String> set = new HashSet<>();
                 set.add(wordCount.getWord());
                 indexByPartition.put(partition, set);
@@ -99,9 +95,12 @@ public class ReducerActor extends WorkerActor {
         indexByPartition.put(m.getPartitionIndex(), partitionSet);
     }
     
-//  private void processGetCountMessage(GetCountMessage m) {
-//    int count = wordCountMap.getOrDefault(m.word, 0);
-//    System.out.println(String.format("#%s Total for word %s is %d", getSelf().path(), m.word, count));
-//  }
-
+    /**
+     * Receive a ReadWordCount and respond with a WordCount
+     */
+    private void processReadWordCount(ReadWordCount m) {
+        int count = wordCountMap.getOrDefault(m.getWord(), 0);
+        sender().tell(new WordCount(m.getWord(), count), self());
+    }
+    
 }
