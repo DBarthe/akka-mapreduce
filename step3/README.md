@@ -33,7 +33,7 @@ Si le worker devient un reducer, le handshake est suivi d'une redistribution de 
 Lorsqu'un reducer quitte le cluster, ses partitions sont redistribuées aux reducers restant de la même manière.
 
 Au démarrage du master, on peut décider le nombre de partitions :
-* un grand nombre permet un meilleur équilibrage des reducer
+* un grand nombre permet un meilleur équilibrage des reducers
 * un petit nombre induit un overhead cpu et io plus petit
 
 
